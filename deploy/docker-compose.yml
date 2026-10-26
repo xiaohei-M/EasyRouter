@@ -1,0 +1,30 @@
+# 易路由 EasyRouter —— Docker Compose 部署（实验性）
+# 必须以宿主机网络与特权运行，否则无法操作网卡/DHCP/NAT。
+#
+# 使用前请先按提示修改两个卷目录的宿主机路径，并确保宿主已:
+#   sysctl -w net.ipv4.ip_forward=1
+#   sysctl -w net.netfilter.nf_conntrack_acct=1
+services:
+  easyrouter:
+    build: .
+    container_name: easyrouter
+    restart: unless-stopped
+    network_mode: host
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - NET_BIND_SERVICE
+      - SYS_MODULE
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      - ./config:/etc/easyrouter          # 配置文件目录
+      - ./data:/var/lib/easyrouter        # 数据库 / 租约文件
+      - ./log:/var/log/easyrouter         # 日志目录
+      - /sys:/sys:ro
+      - /proc:/proc:rw
+    # sysctls 在 host 网络下作用于宿主机
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.netfilter.nf_conntrack_acct=1
