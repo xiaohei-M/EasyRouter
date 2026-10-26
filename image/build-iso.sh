@@ -15,7 +15,7 @@ if command -v apt-get >/dev/null 2>&1; then
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -qq
   apt-get install -y -qq xorriso isolinux syslinux-common syslinux-utils \
-    mtools dosfstools wget rsync ca-certificates
+    mtools dosfstools wget rsync ca-certificates dpkg-dev
 fi
 for t in xorriso wget rsync tar; do need "$t"; done
 
@@ -40,6 +40,39 @@ mkdir -p "$WORK/iso"
 xorriso -osirrox on -indev "$SRC" -extract / "$WORK/iso" >/dev/null 2>&1
 chmod -R u+w "$WORK/iso"
 ISO="$WORK/iso"
+
+echo "==> 准备离线依赖包（dnsmasq / conntrack / sshpass 及依赖）"
+if ! command -v docker >/dev/null 2>&1; then
+  echo "错误：完全离线 ISO 需要 Docker 在 Debian 13 环境中下载依赖包"
+  exit 1
+fi
+EXTRA="$WORK/extras"
+mkdir -p "$EXTRA"
+docker run --rm -v "$EXTRA:/out" debian:13 bash -c '
+  set -e
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -qq
+  apt-get install -y -qq --download-only --reinstall --no-install-recommends \
+    dnsmasq-base conntrack sshpass \
+    libdbus-1-3 libidn12 libnetfilter-conntrack3 libnfnetlink0 \
+    libnftables1 libmnl0 libnftnl11 libjansson4 libreadline8t64 libxtables12 \
+    libpam0g libselinux1 libwrap0 libgmp10
+  cp /var/cache/apt/archives/*.deb /out/
+'
+ls "$EXTRA"/*.deb >/dev/null 2>&1 || { echo "离线依赖包下载失败"; exit 1; }
+mkdir -p "$ISO/pool/easyrouter"
+cp "$EXTRA"/*.deb "$ISO/pool/easyrouter/"
+echo "==> 生成 ISO 内置离线 apt 源索引"
+( cd "$ISO" && dpkg-scanpackages pool /dev/null 2>/dev/null | gzip -9 > Packages.gz )
+[ -s "$ISO/Packages.gz" ] || { echo "生成 Packages.gz 失败"; exit 1; }
+cat > "$ISO/Release" <<'EOF'
+Origin: EasyRouter
+Label: EasyRouter Offline
+Suite: stable
+Codename: trixie
+Architectures: amd64
+Components: main
+EOF
 
 echo "==> 打包应用与 preseed"
 mkdir -p "$WORK/app/EasyRouter"

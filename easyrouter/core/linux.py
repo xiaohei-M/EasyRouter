@@ -56,6 +56,10 @@ class LinuxBackend(BackendBase):
             self._reapply_base(cfg)
             self.dnsmasq.start(cfg, self.dnsmasq_conf, self.lease_path)
             self.netmgr.apply_wan(cfg)
+        else:
+            # 首次启动、尚未完成向导：如果没有任何非回环 IPv4，
+            # 自动给第一块有线网卡配上 192.168.1.1，保证离线也能打开后台。
+            self._bootstrap_offline_lan(cfg)
         self._init_nbns(cfg)
 
     def stop(self):
@@ -65,6 +69,50 @@ class LinuxBackend(BackendBase):
     def _info(self, msg):
         if self.log:
             self.log.info(msg)
+
+    def _first_wired_iface(self):
+        """选择第一块有线网卡（优先有载波的）。"""
+        try:
+            names = sorted(os.listdir("/sys/class/net"))
+        except OSError:
+            return ""
+        candidates = []
+        for name in names:
+            if name == "lo" or name.startswith(("wl", "docker", "veth", "br-", "virbr")):
+                continue
+            if not os.path.exists("/sys/class/net/%s/device" % name):
+                continue
+            if name.startswith(("en", "eth")):
+                candidates.append(name)
+        for name in candidates:
+            try:
+                with open("/sys/class/net/%s/carrier" % name, "r") as f:
+                    if f.read().strip() == "1":
+                        return name
+            except OSError:
+                pass
+        return candidates[0] if candidates else ""
+
+    def _bootstrap_offline_lan(self, cfg):
+        lan = cfg.setdefault("network", {}).setdefault("lan", {})
+        iface = (lan.get("interface") or "").strip() or self._first_wired_iface()
+        if not iface or not os.path.isdir("/sys/class/net/" + iface):
+            self._info("未发现可用有线网卡，跳过离线默认地址")
+            return
+        lan["interface"] = iface
+        rc, out, _ = linux_util.run(
+            ["ip", "-4", "-o", "addr", "show", "dev", iface], timeout=10)
+        if rc == 0 and "inet " in out:
+            self._info("首次启动：%s 已有 IP，保留现有地址" % iface)
+            return
+        ip = (lan.get("ip") or "192.168.1.1").strip()
+        linux_util.run(["ip", "link", "set", "dev", iface, "up"], timeout=10)
+        rc, _, err = linux_util.run(
+            ["ip", "addr", "add", "%s/24" % ip, "dev", iface], timeout=10)
+        if rc == 0:
+            self._info("首次启动离线地址：%s 已设置为 %s/24" % (iface, ip))
+        else:
+            self._info("首次启动设置默认地址失败：%s" % err.strip())
 
     def _reapply_base(self, cfg):
         if cfg.get("firewall", {}).get("enabled", True):

@@ -23,11 +23,19 @@ echo "  ${APP_NAME} 一键安装"
 echo "============================================="
 
 # ---------- 1. 安装依赖 ----------
-echo "[1/6] 安装系统依赖（python3 nftables dnsmasq-base iproute2 dhclient ppp conntrack sshpass）…"
-if command -v apt-get >/dev/null 2>&1; then
-  export DEBIAN_FRONTEND=noninteractive
+echo "[1/6] 安装系统依赖（python3 nftables dnsmasq-base iproute2 conntrack sshpass）…"
+export DEBIAN_FRONTEND=noninteractive
+OFFLINE_LIST="/etc/apt/sources.list.d/easyrouter-offline.list"
+if [ -f /cdrom/Packages.gz ] && [ -f /cdrom/easyrouter.tar.gz ]; then
+  echo "检测到 ISO 离线包池，使用离线安装模式"
+  echo "deb [trusted=yes] file:/cdrom ./" > "$OFFLINE_LIST"
+  apt-get -o Dir::Etc::sourcelist="$OFFLINE_LIST" -o Dir::Etc::sourceparts="-" update -y
+  apt-get -o Dir::Etc::sourcelist="$OFFLINE_LIST" -o Dir::Etc::sourceparts="-" \
+    install -y --no-install-recommends python3 nftables dnsmasq-base iproute2 conntrack sshpass ppp openssh-server
+  rm -f "$OFFLINE_LIST"
+elif command -v apt-get >/dev/null 2>&1; then
   apt-get update -y
-  apt-get install -y python3 nftables dnsmasq-base iproute2 isc-dhcp-client ppp conntrack sshpass
+  apt-get install -y python3 nftables dnsmasq-base iproute2 conntrack sshpass ppp openssh-server
 else
   echo "错误：未找到 apt-get，仅支持 Debian/Ubuntu 系列发行版。"
   exit 1
@@ -55,8 +63,8 @@ cat > "/etc/systemd/system/${SERVICE}" <<EOF
 [Unit]
 Description=易路由 EasyRouter —— 全中文软路由系统
 Documentation=https://example.invalid/easyrouter
-Wants=network-online.target
-After=network-online.target
+Wants=network.target
+After=network.target
 
 [Service]
 Type=simple
@@ -84,7 +92,7 @@ sysctl -p /etc/sysctl.d/99-easyrouter.conf >/dev/null 2>&1 || true
 
 # ---------- 5. 服务管理 ----------
 echo "[5/6] 启用服务…"
-systemctl daemon-reload
+systemctl daemon-reload >/dev/null 2>&1 || true
 systemctl enable "${SERVICE}" >/dev/null 2>&1 || true
 
 # 若系统自带 dnsmasq 服务占用端口，予以停用（本系统自行管理 dnsmasq 进程）

@@ -3,4 +3,4 @@
 set -e
 cd /opt/EasyRouter
 bash scripts/install.sh
-systemctl enable easyrouter.service
+systemctl enable easyrouter.service >/dev/null 2>&1 || true
