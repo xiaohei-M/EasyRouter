@@ -1,0 +1,29 @@
+name: Build EasyRouter Install ISO
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build-iso:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build install ISO
+        run: sudo bash image/build-iso.sh
+
+      - name: Upload ISO
+        uses: actions/upload-artifact@v4
+        with:
+          name: EasyRouter-install-iso
+          path: image/output/EasyRouter-install.iso
+          retention-days: 7
+          compression-level: 0
